@@ -83,6 +83,22 @@ impl <T> List<T> {
         }
     }
 
+    pub fn insert(&mut self, index: usize, val: T) {
+        assert!(index <= self.len, "index out of bounds");
+        if self.len == self.cap { self.grow() }
+
+        unsafe {
+            let insert_ptr = self.ptr.as_ptr().add(index);
+            std::ptr::copy(
+                insert_ptr,
+                self.ptr.as_ptr().add(index + 1),
+                self.len - index
+            );
+            std::ptr::write(insert_ptr, val);
+        }
+        self.len += 1;
+    }
+
     pub fn get_unchecked(&self, i: usize) -> &T {
         unsafe {
             &*self.ptr.as_ptr().add(i)
@@ -237,5 +253,115 @@ mod tests {
         list.push(1);
         list.pop();
         assert_eq!(list.get(0), None, "List should be empty after push and pop");
+    }
+
+    #[test]
+    fn test_insert_into_empty_list() {
+        let mut list: List<i32> = nl();
+        list.insert(0, 42);
+        assert_eq!(list.get(0), Some(&42), "Insert into empty list should place element at index 0");
+        assert_eq!(list.len, 1, "Length should be 1 after insert");
+        assert_eq!(list.get(1), None, "Index 1 should be out of bounds");
+    }
+
+    #[test]
+    fn test_insert_at_start() {
+        let mut list = nl();
+        list.push(1);
+        list.push(2);
+        list.insert(0, 0);
+        assert_eq!(list.get(0), Some(&0), "Insert at start should place element at index 0");
+        assert_eq!(list.get(1), Some(&1), "Original first element should be shifted");
+        assert_eq!(list.get(2), Some(&2), "Original second element should be shifted");
+        assert_eq!(list.len, 3, "Length should be 3 after insert");
+    }
+
+    #[test]
+    fn test_insert_at_end() {
+        let mut list = nl();
+        list.push(1);
+        list.push(2);
+        list.insert(2, 3);
+        assert_eq!(list.get(0), Some(&1), "First element should remain");
+        assert_eq!(list.get(1), Some(&2), "Second element should remain");
+        assert_eq!(list.get(2), Some(&3), "Insert at end should place element at index 2");
+        assert_eq!(list.len, 3, "Length should be 3 after insert");
+    }
+
+    #[test]
+    fn test_insert_in_middle() {
+        let mut list = nl();
+        list.push(1);
+        list.push(3);
+        list.insert(1, 2);
+        assert_eq!(list.get(0), Some(&1), "First element should remain");
+        assert_eq!(list.get(1), Some(&2), "Inserted element should be at index 1");
+        assert_eq!(list.get(2), Some(&3), "Original second element should be shifted");
+        assert_eq!(list.len, 3, "Length should be 3 after insert");
+    }
+
+    #[test]
+    fn test_insert_with_strings() {
+        let mut list: List<String> = nl();
+        list.push(String::from("a"));
+        list.push(String::from("c"));
+        list.insert(1, String::from("b"));
+        assert_eq!(list.get(0), Some(&String::from("a")), "First element should remain");
+        assert_eq!(list.get(1), Some(&String::from("b")), "Inserted element should be at index 1");
+        assert_eq!(list.get(2), Some(&String::from("c")), "Original second element should be shifted");
+        assert_eq!(list.len, 3, "Length should be 3 after insert");
+    }
+
+    #[test]
+    fn test_insert_triggers_growth() {
+        let mut list = nl();
+        // Fill to capacity (assuming initial capacity is 0, grows to 1, then 2, etc.)
+        list.push(1); // cap = 1
+        list.push(2); // cap = 2
+        list.push(3); // cap = 4
+        list.push(4);
+        let initial_cap = list.cap;
+        list.insert(1, 5); // Should trigger growth if cap is full
+        assert_eq!(list.get(0), Some(&1), "First element should remain");
+        assert_eq!(list.get(1), Some(&5), "Inserted element should be at index 1");
+        assert_eq!(list.get(2), Some(&2), "Second element should be shifted");
+        assert_eq!(list.get(3), Some(&3), "Third element should be shifted");
+        assert_eq!(list.get(4), Some(&4), "Third element should be shifted");
+        assert_eq!(list.len, 5, "Length should be 4 after insert");
+        assert!(list.cap > initial_cap, "Capacity should increase after insert");
+    }
+
+    #[test]
+    #[should_panic(expected = "index out of bounds")]
+    fn test_insert_out_of_bounds() {
+        let mut list = nl();
+        list.push(1);
+        list.insert(2, 2); // Should panic since index 2 > len
+    }
+
+    #[test]
+    fn test_multiple_inserts() {
+        let mut list = nl();
+        list.push(2);
+        list.push(4);
+        list.insert(0, 1);
+        list.insert(2, 3);
+        list.insert(4, 5);
+        assert_eq!(list.get(0), Some(&1), "First insert should be at index 0");
+        assert_eq!(list.get(1), Some(&2), "Original first element shifted");
+        assert_eq!(list.get(2), Some(&3), "Second insert should be at index 2");
+        assert_eq!(list.get(3), Some(&4), "Original second element shifted");
+        assert_eq!(list.get(4), Some(&5), "Third insert should be at index 4");
+        assert_eq!(list.len, 5, "Length should be 5 after inserts");
+    }
+
+    #[test]
+    fn test_insert_with_deref() {
+        let mut list = nl();
+        list.push(1);
+        list.push(3);
+        list.insert(1, 2);
+        let slice: &[i32] = &list;
+        assert_eq!(slice, &[1, 2, 3], "Deref should return correct slice after insert");
     }
 }
