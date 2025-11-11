@@ -1,8 +1,8 @@
 use std::{
+    alloc::{self, Layout},
     mem,
-    ops::Index,
-    ptr::NonNull,
-    alloc::{self, Layout}
+    ops::{Deref, DerefMut},
+    ptr::NonNull
 };
 
 pub struct List<T> {
@@ -90,15 +90,34 @@ impl <T> List<T> {
     }
 }
 
-impl <T> Index<usize> for List<T> {
-    type Output = T;
-
-    fn index(&self, index: usize) -> &Self::Output {
-        if index >= self.len {
-            panic!("index out of bounds")
+impl <T> Drop for List<T> {
+    fn drop(&mut self) {
+        if self.cap == 0 {
+            return;
         }
+
+        while let Some(_) = self.pop() { }
+        let layout = Layout::array::<T>(self.cap).unwrap();
         unsafe {
-            &*self.ptr.as_ptr().add(index)
+            alloc::dealloc(self.ptr.as_ptr() as *mut u8, layout);
+        }
+    }
+}
+
+impl <T> Deref for List<T> {
+    type Target = [T];
+
+    fn deref(&self) -> &Self::Target {
+        unsafe {
+            std::slice::from_raw_parts(self.ptr.as_ptr(), self.len)
+        }
+    }
+}
+
+impl <T> DerefMut for List<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe {
+            std::slice::from_raw_parts_mut(self.ptr.as_ptr(), self.len)
         }
     }
 }
