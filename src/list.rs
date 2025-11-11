@@ -99,6 +99,20 @@ impl <T> List<T> {
         self.len += 1;
     }
 
+    pub fn remove(&mut self, index: usize) -> T {
+        assert!(index < self.len, "index out of bounds");
+        unsafe {
+            self.len -= 1;
+            let removed = std::ptr::read(self.ptr.as_ptr().add(index));
+            std::ptr::copy(
+                self.ptr.as_ptr().add(index + 1),
+                self.ptr.as_ptr().add(index),
+                self.len - index
+            );
+            removed
+        }
+    }
+
     pub fn get_unchecked(&self, i: usize) -> &T {
         unsafe {
             &*self.ptr.as_ptr().add(i)
@@ -363,5 +377,123 @@ mod tests {
         list.insert(1, 2);
         let slice: &[i32] = &list;
         assert_eq!(slice, &[1, 2, 3], "Deref should return correct slice after insert");
+    }
+
+    #[test]
+    fn test_remove_from_single_element_list() {
+        let mut list = nl();
+        list.push(42);
+        let removed = list.remove(0);
+        assert_eq!(removed, 42, "Remove should return the removed element");
+        assert_eq!(list.len, 0, "Length should be 0 after remove");
+        assert_eq!(list.get(0), None, "List should be empty after remove");
+    }
+
+    #[test]
+    fn test_remove_from_start() {
+        let mut list = nl();
+        list.push(1);
+        list.push(2);
+        list.push(3);
+        let removed = list.remove(0);
+        assert_eq!(removed, 1, "Remove should return first element");
+        assert_eq!(list.get(0), Some(&2), "Second element should shift to index 0");
+        assert_eq!(list.get(1), Some(&3), "Third element should shift to index 1");
+        assert_eq!(list.len, 2, "Length should be 2 after remove");
+    }
+
+    #[test]
+    fn test_remove_from_end() {
+        let mut list = nl();
+        list.push(1);
+        list.push(2);
+        list.push(3);
+        let removed = list.remove(2);
+        assert_eq!(removed, 3, "Remove should return last element");
+        assert_eq!(list.get(0), Some(&1), "First element should remain");
+        assert_eq!(list.get(1), Some(&2), "Second element should remain");
+        assert_eq!(list.get(2), None, "Index 2 should be out of bounds");
+        assert_eq!(list.len, 2, "Length should be 2 after remove");
+    }
+
+    #[test]
+    fn test_remove_from_middle() {
+        let mut list = nl();
+        list.push(1);
+        list.push(2);
+        list.push(3);
+        let removed = list.remove(1);
+        assert_eq!(removed, 2, "Remove should return middle element");
+        assert_eq!(list.get(0), Some(&1), "First element should remain");
+        assert_eq!(list.get(1), Some(&3), "Third element should shift to index 1");
+        assert_eq!(list.get(2), None, "Index 2 should be out of bounds");
+        assert_eq!(list.len, 2, "Length should be 2 after remove");
+    }
+
+    #[test]
+    fn test_remove_with_strings() {
+        let mut list: List<String> = nl();
+        list.push(String::from("a"));
+        list.push(String::from("b"));
+        list.push(String::from("c"));
+        let removed = list.remove(1);
+        assert_eq!(removed, String::from("b"), "Remove should return middle string");
+        assert_eq!(list.get(0), Some(&String::from("a")), "First string should remain");
+        assert_eq!(list.get(1), Some(&String::from("c")), "Third string should shift to index 1");
+        assert_eq!(list.len, 2, "Length should be 2 after remove");
+    }
+
+    #[test]
+    #[should_panic(expected = "index out of bounds")]
+    fn test_remove_out_of_bounds() {
+        let mut list = nl();
+        list.push(1);
+        list.remove(1); // Should panic since index 1 >= len
+    }
+
+    #[test]
+    #[should_panic(expected = "index out of bounds")]
+    fn test_remove_from_empty_list() {
+        let mut list: List<i32> = nl();
+        list.remove(0); // Should panic since list is empty
+    }
+
+    #[test]
+    fn test_multiple_removes() {
+        let mut list = nl();
+        list.push(1);
+        list.push(2);
+        list.push(3);
+        list.push(4);
+        let removed1 = list.remove(0);
+        let removed2 = list.remove(1);
+        assert_eq!(removed1, 1, "First remove should return 1");
+        assert_eq!(removed2, 3, "Second remove should return 3");
+        assert_eq!(list.get(0), Some(&2), "Second element should be at index 0");
+        assert_eq!(list.get(1), Some(&4), "Fourth element should be at index 1");
+        assert_eq!(list.len, 2, "Length should be 2 after removes");
+    }
+
+    #[test]
+    fn test_remove_with_deref() {
+        let mut list = nl();
+        list.push(1);
+        list.push(2);
+        list.push(3);
+        list.remove(1);
+        let slice: &[i32] = &list;
+        assert_eq!(slice, &[1, 3], "Deref should return correct slice after remove");
+    }
+
+    #[test]
+    fn test_remove_preserves_capacity() {
+        let mut list = nl();
+        list.push(1);
+        list.push(2);
+        let initial_cap = list.cap;
+        list.remove(0);
+        assert_eq!(list.cap, initial_cap, "Capacity should not change after remove");
+        assert_eq!(list.len, 1, "Length should be 1 after remove");
+        assert_eq!(list.get(0), Some(&2), "Remaining element should be correct");
     }
 }
