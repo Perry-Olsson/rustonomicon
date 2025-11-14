@@ -115,6 +115,15 @@ impl <T> List<T> {
             list: PhantomData,
         }
     }
+
+    /// Shortens the list to the provided argument len
+    /// discarding the rest. If the len passed in is greater
+    /// than or equal to the current length of the list this has no effect
+    pub fn truncate(&mut self, len: usize) {
+        while self.len > len {
+            self.pop();
+        }
+    }
 }
 
 impl <T> Drop for List<T> {
@@ -772,5 +781,122 @@ mod tests {
         assert_eq!(iter.size_hint(), (0, Some(0)), "Size hint should be (0, Some(0)) after consuming");
         iter.next_back();
         assert_eq!(iter.size_hint(), (0, Some(0)), "Size hint should remain (0, Some(0)) after exhaustion");
+    }
+
+    #[test]
+    fn test_truncate_to_smaller_length() {
+        let mut list = nl();
+        list.push(1);
+        list.push(2);
+        list.push(3);
+        list.push(4);
+        list.push(5);
+        list.truncate(3);
+        assert_eq!(list.len, 3, "Length should be 3 after truncate");
+        assert_eq!(list.get(0), Some(&1), "First element should remain");
+        assert_eq!(list.get(1), Some(&2), "Second element should remain");
+        assert_eq!(list.get(2), Some(&3), "Third element should remain");
+        assert_eq!(list.get(3), None, "Fourth element should be discarded");
+        assert_eq!(list.get(4), None, "Fifth element should be discarded");
+    }
+
+    #[test]
+    fn test_truncate_to_zero() {
+        let mut list = nl();
+        list.push(1);
+        list.push(2);
+        list.push(3);
+        list.truncate(0);
+        assert_eq!(list.len, 0, "Length should be 0 after truncate to 0");
+        assert_eq!(list.get(0), None, "List should be empty after truncate to 0");
+    }
+
+    #[test]
+    fn test_truncate_to_current_length() {
+        let mut list = nl();
+        list.push(1);
+        list.push(2);
+        list.push(3);
+        list.truncate(3);
+        assert_eq!(list.len, 3, "Length should remain 3");
+        assert_eq!(list.get(0), Some(&1), "First element should remain");
+        assert_eq!(list.get(1), Some(&2), "Second element should remain");
+        assert_eq!(list.get(2), Some(&3), "Third element should remain");
+    }
+
+    #[test]
+    fn test_truncate_to_larger_length() {
+        let mut list = nl();
+        list.push(1);
+        list.push(2);
+        list.push(3);
+        list.truncate(10);
+        assert_eq!(list.len, 3, "Length should remain 3");
+        assert_eq!(list.get(0), Some(&1), "First element should remain");
+        assert_eq!(list.get(1), Some(&2), "Second element should remain");
+        assert_eq!(list.get(2), Some(&3), "Third element should remain");
+    }
+
+    #[test]
+    fn test_truncate_empty_list() {
+        let mut list: List<i32> = nl();
+        list.truncate(0);
+        assert_eq!(list.len, 0, "Length should be 0");
+        list.truncate(5);
+        assert_eq!(list.len, 0, "Length should remain 0");
+    }
+
+    #[test]
+    fn test_truncate_with_strings() {
+        let mut list: List<String> = nl();
+        list.push(String::from("a"));
+        list.push(String::from("b"));
+        list.push(String::from("c"));
+        list.push(String::from("d"));
+        list.truncate(2);
+        assert_eq!(list.len, 2, "Length should be 2 after truncate");
+        assert_eq!(list.get(0), Some(&String::from("a")), "First string should remain");
+        assert_eq!(list.get(1), Some(&String::from("b")), "Second string should remain");
+        assert_eq!(list.get(2), None, "Third string should be discarded");
+        // No assertion needed; test passes if no memory leaks occur
+    }
+
+    #[test]
+    fn test_truncate_preserves_capacity() {
+        let mut list = nl();
+        list.push(1);
+        list.push(2);
+        list.push(3);
+        list.push(4);
+        let initial_cap = list.cap();
+        list.truncate(2);
+        assert_eq!(list.cap(), initial_cap, "Capacity should not change after truncate");
+        assert_eq!(list.len, 2, "Length should be 2 after truncate");
+    }
+
+    #[test]
+    fn test_truncate_then_push() {
+        let mut list = nl();
+        list.push(1);
+        list.push(2);
+        list.push(3);
+        list.truncate(1);
+        assert_eq!(list.len, 1, "Length should be 1 after truncate");
+        list.push(4);
+        assert_eq!(list.len, 2, "Length should be 2 after push");
+        assert_eq!(list.get(0), Some(&1), "First element should be 1");
+        assert_eq!(list.get(1), Some(&4), "Second element should be 4");
+    }
+
+    #[test]
+    fn test_truncate_with_deref() {
+        let mut list = nl();
+        list.push(1);
+        list.push(2);
+        list.push(3);
+        list.push(4);
+        list.truncate(2);
+        let slice: &[i32] = &list;
+        assert_eq!(slice, &[1, 2], "Deref should return correct slice after truncate");
     }
 }
