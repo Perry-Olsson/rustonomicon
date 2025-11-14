@@ -1,64 +1,13 @@
+mod raw_list;
+mod iter;
+
+use raw_list::{RawList};
+use iter::{IntoIter};
 use std::{
-    alloc::{self, Layout},
-    mem::{self},
-    ops::{Deref, DerefMut},
-    ptr::NonNull
+    marker::PhantomData, mem::{self}, ops::{Deref, DerefMut}
 };
 
-struct RawList<T> {
-    ptr: NonNull<T>,
-    cap: usize
-}
-
-unsafe impl<T: Send> Send for RawList<T> {}
-unsafe impl<T: Sync> Sync for RawList<T> {}
-
-impl <T> RawList<T> {
-    pub fn new() -> RawList<T> {
-        assert!(mem::size_of::<T>() != 0, "ZSTs can't be handled yet");
-        RawList { 
-            ptr: NonNull::dangling(),
-            cap: 0,
-        }
-    }
-
-    fn grow(&mut self) {
-        let (new_cap, new_layout) = if self.cap == 0 {
-            (1, Layout::array::<T>(1).unwrap())
-        } else {
-            let new_cap = 2 * self.cap;
-            let new_layout = Layout::array::<T>(new_cap).unwrap();
-            (new_cap, new_layout)
-        };
-
-        // Ensure that the new allocation doesn't exceed `isize::MAX` bytes.
-        assert!(new_layout.size() <= isize::MAX as usize, "Allocation too large");
-
-        let new_ptr = if self.cap == 0 {
-            unsafe { alloc::alloc(new_layout) }
-        } else {
-            let old_layout = Layout::array::<T>(self.cap).unwrap();
-            let old_ptr = self.ptr.as_ptr() as *mut u8;
-            unsafe { alloc::realloc(old_ptr, old_layout, new_layout.size()) }
-        };
-        self.ptr = match NonNull::new(new_ptr as *mut T) {
-            Some(p) => p,
-            None => alloc::handle_alloc_error(new_layout),
-        };
-        self.cap = new_cap;
-    }
-}
-
-impl <T> Drop for RawList<T> {
-    fn drop(&mut self) {
-        if self.cap != 0 {
-            let layout = Layout::array::<T>(self.cap).unwrap();
-            unsafe {
-                alloc::dealloc(self.ptr.as_ptr() as *mut u8, layout);
-            }
-        }
-    }
-}
+use crate::list::iter::RawValIter;
 
 pub struct List<T> {
     buf: RawList<T>,
@@ -153,6 +102,17 @@ impl <T> List<T> {
             &*self.ptr().add(i)
         }
     }
+
+    pub fn drain(&mut self) -> Drain<T> {
+        let iter = unsafe { RawValIter::new(&self) };
+
+        self.len = 0;
+
+        Drain {
+            iter,
+            list: PhantomData,
+        }
+    }
 }
 
 impl <T> Drop for List<T> {
@@ -179,72 +139,52 @@ impl <T> DerefMut for List<T> {
     }
 }
 
-pub struct IntoIter<T> {
-    _buf: RawList<T>,
-    front: *const T,
-    back: *const T
-}
-
-impl <T> Drop for IntoIter<T> {
-    fn drop(&mut self) {
-        for _ in &mut *self {}
-    }
-}
-
 impl <T> IntoIterator for List<T> {
     type Item = T;
 
     type IntoIter = IntoIter<T>;
 
     fn into_iter(self) -> Self::IntoIter {
-        let buf = unsafe { std::ptr::read(&self.buf) };
-        let len = self.len;
-        mem::forget(self);
+        unsafe {
+            let iter = RawValIter::new(&self);
 
-        IntoIter {
-            front: buf.ptr.as_ptr(),
-            back: if buf.cap == 0 {
-                buf.ptr.as_ptr()
-            } else {
-                unsafe { buf.ptr.as_ptr().add(len) }
-            },
-            _buf: buf
+            let buf = std::ptr::read(&self.buf);
+            mem::forget(self);
+
+            IntoIter {
+                iter,
+                _buf: buf
+            }
         }
     }
 }
 
-impl <T> Iterator for IntoIter<T> {
+pub struct Drain<'a, T: 'a> {
+    list: PhantomData<&'a mut List<T>>,
+    iter: RawValIter<T>
+}
+
+impl <'a, T> Drop for Drain<'a, T> {
+    fn drop(&mut self) {
+        for _ in &mut *self {}
+    }
+}
+
+impl <'a, T> Iterator for Drain<'a, T> {
     type Item = T;
 
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.front == self.back {
-            None
-        } else {
-            unsafe {
-                let val = std::ptr::read(self.front);
-                self.front = self.front.offset(1);
-                return Some(val);
-            }
-        }
+    fn next(&mut self) -> Option<T> {
+        self.iter.next()
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let len = (self.back as usize - self.front as usize)
-                  / mem::size_of::<T>();
-        (len, Some(len))
+        self.iter.size_hint()
     }
 }
 
-impl <T> DoubleEndedIterator for IntoIter<T> {
+impl <'a, T> DoubleEndedIterator for Drain<'a, T> {
     fn next_back(&mut self) -> Option<Self::Item> {
-        if self.front == self.back {
-            None
-        } else {
-            unsafe {
-                self.back = self.back.offset(-1);
-                Some(std::ptr::read(self.back))
-            }
-        }
+        self.iter.next_back()
     }
 }
 
