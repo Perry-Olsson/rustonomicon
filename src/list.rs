@@ -120,8 +120,14 @@ impl <T> List<T> {
     /// discarding the rest. If the len passed in is greater
     /// than or equal to the current length of the list this has no effect
     pub fn truncate(&mut self, len: usize) {
-        while self.len > len {
-            self.pop();
+        unsafe {
+            if len > self.len {
+                return;
+            }
+            let remaining_len = self.len - len;
+            let s = std::ptr::slice_from_raw_parts_mut(self.as_mut_ptr().add(len), remaining_len);
+            self.len = len;
+            std::ptr::drop_in_place(s);
         }
     }
 }
