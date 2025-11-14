@@ -1,6 +1,6 @@
 use std::{
     alloc::{self, Layout},
-    mem,
+    mem::{self, ManuallyDrop},
     ops::{Deref, DerefMut},
     ptr::NonNull
 };
@@ -148,6 +148,87 @@ impl <T> DerefMut for List<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe {
             std::slice::from_raw_parts_mut(self.ptr.as_ptr(), self.len)
+        }
+    }
+}
+
+pub struct IntoIter<T> {
+    buf: NonNull<T>,
+    cap: usize,
+    front: *const T,
+    back: *const T
+}
+
+impl <T> IntoIterator for List<T> {
+    type Item = T;
+
+    type IntoIter = IntoIter<T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        let list = ManuallyDrop::new(self);
+
+        let ptr = list.ptr;
+        let cap = list.cap;
+        let len = list.len;
+
+        IntoIter {
+            buf: ptr,
+            cap,
+            front: ptr.as_ptr(),
+            back: if cap == 0 {
+                ptr.as_ptr()
+            } else {
+                unsafe {
+                    ptr.as_ptr().add(len)
+                }
+            }
+        }
+    }
+}
+
+impl <T> Iterator for IntoIter<T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.front == self.back {
+            None
+        } else {
+            unsafe {
+                let val = std::ptr::read(self.front);
+                self.front = self.front.offset(1);
+                return Some(val);
+            }
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let len = (self.back as usize - self.front as usize)
+                  / mem::size_of::<T>();
+        (len, Some(len))
+    }
+}
+
+impl <T> DoubleEndedIterator for IntoIter<T> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if self.front == self.back {
+            None
+        } else {
+            unsafe {
+                self.back = self.back.offset(-1);
+                Some(std::ptr::read(self.back))
+            }
+        }
+    }
+}
+
+impl <T> Drop for IntoIter<T> {
+    fn drop(&mut self) {
+        if self.cap != 0 {
+            for _ in &mut *self {}
+            let layout = Layout::array::<T>(self.cap).unwrap();
+            unsafe {
+                alloc::dealloc(self.buf.as_ptr() as *mut u8, layout);
+            }
         }
     }
 }
@@ -495,5 +576,132 @@ mod tests {
         assert_eq!(list.cap, initial_cap, "Capacity should not change after remove");
         assert_eq!(list.len, 1, "Length should be 1 after remove");
         assert_eq!(list.get(0), Some(&2), "Remaining element should be correct");
+    }
+
+    #[test]
+    fn test_into_iter_empty_list() {
+        let list: List<i32> = nl();
+        let mut iter = list.into_iter();
+        assert_eq!(iter.next(), None, "Empty iterator should yield None");
+        assert_eq!(iter.next_back(), None, "Empty iterator should yield None for next_back");
+        assert_eq!(iter.size_hint(), (0, Some(0)), "Size hint should be (0, Some(0)) for empty iterator");
+    }
+
+    #[test]
+    fn test_into_iter_single_element() {
+        let mut list = nl();
+        list.push(42);
+        let mut iter = list.into_iter();
+        assert_eq!(iter.size_hint(), (1, Some(1)), "Size hint should be (1, Some(1))");
+        assert_eq!(iter.next(), Some(42), "Iterator should yield single element");
+        assert_eq!(iter.next(), None, "Iterator should be exhausted after one element");
+        assert_eq!(iter.next_back(), None, "Exhausted iterator should yield None for next_back");
+        assert_eq!(iter.size_hint(), (0, Some(0)), "Size hint should be (0, Some(0)) after exhaustion");
+    }
+
+    #[test]
+    fn test_into_iter_multiple_elements_forward() {
+        let mut list = nl();
+        list.push(1);
+        list.push(2);
+        list.push(3);
+        let mut iter = list.into_iter();
+        assert_eq!(iter.size_hint(), (3, Some(3)), "Size hint should be (3, Some(3))");
+        assert_eq!(iter.next(), Some(1), "First element should be 1");
+        assert_eq!(iter.size_hint(), (2, Some(2)), "Size hint should update after next");
+        assert_eq!(iter.next(), Some(2), "Second element should be 2");
+        assert_eq!(iter.next(), Some(3), "Third element should be 3");
+        assert_eq!(iter.next(), None, "Iterator should be exhausted");
+        assert_eq!(iter.size_hint(), (0, Some(0)), "Size hint should be (0, Some(0)) after exhaustion");
+    }
+
+    #[test]
+    fn test_into_iter_multiple_elements_backward() {
+        let mut list = nl();
+        list.push(1);
+        list.push(2);
+        list.push(3);
+        let mut iter = list.into_iter();
+        assert_eq!(iter.next_back(), Some(3), "Last element should be 3");
+        assert_eq!(iter.size_hint(), (2, Some(2)), "Size hint should update after next_back");
+        assert_eq!(iter.next_back(), Some(2), "Second-to-last element should be 2");
+        assert_eq!(iter.next_back(), Some(1), "First element should be 1");
+        assert_eq!(iter.next_back(), None, "Iterator should be exhausted");
+        assert_eq!(iter.next(), None, "Exhausted iterator should yield None for next");
+    }
+
+    #[test]
+    fn test_into_iter_mixed_forward_backward() {
+        let mut list = nl();
+        list.push(1);
+        list.push(2);
+        list.push(3);
+        let mut iter = list.into_iter();
+        assert_eq!(iter.next(), Some(1), "First element should be 1");
+        assert_eq!(iter.next_back(), Some(3), "Last element should be 3");
+        assert_eq!(iter.size_hint(), (1, Some(1)), "Size hint should be (1, Some(1))");
+        assert_eq!(iter.next(), Some(2), "Middle element should be 2");
+        assert_eq!(iter.next(), None, "Iterator should be exhausted");
+        assert_eq!(iter.next_back(), None, "Exhausted iterator should yield None");
+    }
+
+    #[test]
+    fn test_into_iter_with_strings() {
+        let mut list: List<String> = nl();
+        list.push(String::from("a"));
+        list.push(String::from("b"));
+        let mut iter = list.into_iter();
+        assert_eq!(iter.size_hint(), (2, Some(2)), "Size hint should be (2, Some(2))");
+        assert_eq!(iter.next(), Some(String::from("a")), "First element should be 'a'");
+        assert_eq!(iter.next_back(), Some(String::from("b")), "Last element should be 'b'");
+        assert_eq!(iter.next(), None, "Iterator should be exhausted");
+    }
+
+    #[test]
+    fn test_into_iter_for_loop() {
+        let mut list = nl();
+        list.push(1);
+        list.push(2);
+        list.push(3);
+        let mut result = Vec::new();
+        for x in list {
+            result.push(x);
+        }
+        assert_eq!(result, vec![1, 2, 3], "For loop should yield elements in order");
+    }
+
+    #[test]
+    fn test_into_iter_collect() {
+        let mut list = nl();
+        list.push(1);
+        list.push(2);
+        list.push(3);
+        let result: Vec<i32> = list.into_iter().collect();
+        assert_eq!(result, vec![1, 2, 3], "Collect should yield elements in order");
+    }
+
+    #[test]
+    fn test_into_iter_drop_early() {
+        let mut list = nl();
+        list.push(1);
+        list.push(2);
+        {
+            let mut iter = list.into_iter();
+            assert_eq!(iter.next(), Some(1), "First element should be 1");
+            // Drop iterator early (before consuming all elements)
+        }
+        // No assertion needed; test passes if no memory leaks or panics occur
+    }
+
+    #[test]
+    fn test_into_iter_size_hint_edge_cases() {
+        let mut list = nl();
+        list.push(1);
+        let mut iter = list.into_iter();
+        assert_eq!(iter.size_hint(), (1, Some(1)), "Initial size hint should be (1, Some(1))");
+        iter.next();
+        assert_eq!(iter.size_hint(), (0, Some(0)), "Size hint should be (0, Some(0)) after consuming");
+        iter.next_back();
+        assert_eq!(iter.size_hint(), (0, Some(0)), "Size hint should remain (0, Some(0)) after exhaustion");
     }
 }
