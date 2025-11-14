@@ -1,26 +1,24 @@
 use std::{
     alloc::{self, Layout},
-    mem::{self, ManuallyDrop},
+    mem::{self},
     ops::{Deref, DerefMut},
     ptr::NonNull
 };
 
-pub struct List<T> {
+struct RawList<T> {
     ptr: NonNull<T>,
-    cap: usize,
-    len: usize
+    cap: usize
 }
 
-unsafe impl<T: Send> Send for List<T> {}
-unsafe impl<T: Sync> Sync for List<T> {}
+unsafe impl<T: Send> Send for RawList<T> {}
+unsafe impl<T: Sync> Sync for RawList<T> {}
 
-impl <T> List<T> {
-    pub fn new() -> List<T> {
+impl <T> RawList<T> {
+    pub fn new() -> RawList<T> {
         assert!(mem::size_of::<T>() != 0, "ZSTs can't be handled yet");
-        List { 
+        RawList { 
             ptr: NonNull::dangling(),
             cap: 0,
-            len: 0
         }
     }
 
@@ -49,14 +47,51 @@ impl <T> List<T> {
         };
         self.cap = new_cap;
     }
+}
+
+impl <T> Drop for RawList<T> {
+    fn drop(&mut self) {
+        if self.cap != 0 {
+            let layout = Layout::array::<T>(self.cap).unwrap();
+            unsafe {
+                alloc::dealloc(self.ptr.as_ptr() as *mut u8, layout);
+            }
+        }
+    }
+}
+
+pub struct List<T> {
+    buf: RawList<T>,
+    len: usize
+}
+
+unsafe impl<T: Send> Send for List<T> {}
+unsafe impl<T: Sync> Sync for List<T> {}
+
+impl <T> List<T> {
+    pub fn new() -> List<T> {
+        assert!(mem::size_of::<T>() != 0, "ZSTs can't be handled yet");
+        List { 
+            buf: RawList::new(),
+            len: 0
+        }
+    }
+
+    fn ptr(&self) -> *mut T {
+        self.buf.ptr.as_ptr()
+    }
+
+    fn cap(&self) -> usize {
+        self.buf.cap
+    }
 
     pub fn push(&mut self, val: T) {
-        if self.len == self.cap {
-            self.grow()
+        if self.len == self.cap() {
+            self.buf.grow()
         }
 
         unsafe {
-            std::ptr::write(self.ptr.as_ptr().add(self.len), val)
+            std::ptr::write(self.ptr().add(self.len), val)
         }
 
         self.len += 1;
@@ -67,7 +102,7 @@ impl <T> List<T> {
             None
         } else {
             unsafe {
-                Some(&*self.ptr.as_ptr().add(i))
+                Some(&*self.ptr().add(i))
             }
         }
     }
@@ -78,20 +113,20 @@ impl <T> List<T> {
         } else {
             self.len -= 1;
             unsafe {
-                Some(std::ptr::read(self.ptr.as_ptr().add(self.len)))
+                Some(std::ptr::read(self.ptr().add(self.len)))
             }
         }
     }
 
     pub fn insert(&mut self, index: usize, val: T) {
         assert!(index <= self.len, "index out of bounds");
-        if self.len == self.cap { self.grow() }
+        if self.len == self.cap() { self.buf.grow() }
 
         unsafe {
-            let insert_ptr = self.ptr.as_ptr().add(index);
+            let insert_ptr = self.ptr().add(index);
             std::ptr::copy(
                 insert_ptr,
-                self.ptr.as_ptr().add(index + 1),
+                self.ptr().add(index + 1),
                 self.len - index
             );
             std::ptr::write(insert_ptr, val);
@@ -103,10 +138,10 @@ impl <T> List<T> {
         assert!(index < self.len, "index out of bounds");
         unsafe {
             self.len -= 1;
-            let removed = std::ptr::read(self.ptr.as_ptr().add(index));
+            let removed = std::ptr::read(self.ptr().add(index));
             std::ptr::copy(
-                self.ptr.as_ptr().add(index + 1),
-                self.ptr.as_ptr().add(index),
+                self.ptr().add(index + 1),
+                self.ptr().add(index),
                 self.len - index
             );
             removed
@@ -115,22 +150,14 @@ impl <T> List<T> {
 
     pub fn get_unchecked(&self, i: usize) -> &T {
         unsafe {
-            &*self.ptr.as_ptr().add(i)
+            &*self.ptr().add(i)
         }
     }
 }
 
 impl <T> Drop for List<T> {
     fn drop(&mut self) {
-        if self.cap == 0 {
-            return;
-        }
-
         while let Some(_) = self.pop() { }
-        let layout = Layout::array::<T>(self.cap).unwrap();
-        unsafe {
-            alloc::dealloc(self.ptr.as_ptr() as *mut u8, layout);
-        }
     }
 }
 
@@ -139,7 +166,7 @@ impl <T> Deref for List<T> {
 
     fn deref(&self) -> &Self::Target {
         unsafe {
-            std::slice::from_raw_parts(self.ptr.as_ptr(), self.len)
+            std::slice::from_raw_parts(self.ptr(), self.len)
         }
     }
 }
@@ -147,16 +174,21 @@ impl <T> Deref for List<T> {
 impl <T> DerefMut for List<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe {
-            std::slice::from_raw_parts_mut(self.ptr.as_ptr(), self.len)
+            std::slice::from_raw_parts_mut(self.ptr(), self.len)
         }
     }
 }
 
 pub struct IntoIter<T> {
-    buf: NonNull<T>,
-    cap: usize,
+    _buf: RawList<T>,
     front: *const T,
     back: *const T
+}
+
+impl <T> Drop for IntoIter<T> {
+    fn drop(&mut self) {
+        for _ in &mut *self {}
+    }
 }
 
 impl <T> IntoIterator for List<T> {
@@ -165,23 +197,18 @@ impl <T> IntoIterator for List<T> {
     type IntoIter = IntoIter<T>;
 
     fn into_iter(self) -> Self::IntoIter {
-        let list = ManuallyDrop::new(self);
-
-        let ptr = list.ptr;
-        let cap = list.cap;
-        let len = list.len;
+        let buf = unsafe { std::ptr::read(&self.buf) };
+        let len = self.len;
+        mem::forget(self);
 
         IntoIter {
-            buf: ptr,
-            cap,
-            front: ptr.as_ptr(),
-            back: if cap == 0 {
-                ptr.as_ptr()
+            front: buf.ptr.as_ptr(),
+            back: if buf.cap == 0 {
+                buf.ptr.as_ptr()
             } else {
-                unsafe {
-                    ptr.as_ptr().add(len)
-                }
-            }
+                unsafe { buf.ptr.as_ptr().add(len) }
+            },
+            _buf: buf
         }
     }
 }
@@ -216,18 +243,6 @@ impl <T> DoubleEndedIterator for IntoIter<T> {
             unsafe {
                 self.back = self.back.offset(-1);
                 Some(std::ptr::read(self.back))
-            }
-        }
-    }
-}
-
-impl <T> Drop for IntoIter<T> {
-    fn drop(&mut self) {
-        if self.cap != 0 {
-            for _ in &mut *self {}
-            let layout = Layout::array::<T>(self.cap).unwrap();
-            unsafe {
-                alloc::dealloc(self.buf.as_ptr() as *mut u8, layout);
             }
         }
     }
@@ -415,7 +430,7 @@ mod tests {
         list.push(2); // cap = 2
         list.push(3); // cap = 4
         list.push(4);
-        let initial_cap = list.cap;
+        let initial_cap = list.cap();
         list.insert(1, 5); // Should trigger growth if cap is full
         assert_eq!(list.get(0), Some(&1), "First element should remain");
         assert_eq!(list.get(1), Some(&5), "Inserted element should be at index 1");
@@ -423,7 +438,7 @@ mod tests {
         assert_eq!(list.get(3), Some(&3), "Third element should be shifted");
         assert_eq!(list.get(4), Some(&4), "Third element should be shifted");
         assert_eq!(list.len, 5, "Length should be 4 after insert");
-        assert!(list.cap > initial_cap, "Capacity should increase after insert");
+        assert!(list.cap() > initial_cap, "Capacity should increase after insert");
     }
 
     #[test]
@@ -571,9 +586,9 @@ mod tests {
         let mut list = nl();
         list.push(1);
         list.push(2);
-        let initial_cap = list.cap;
+        let initial_cap = list.cap();
         list.remove(0);
-        assert_eq!(list.cap, initial_cap, "Capacity should not change after remove");
+        assert_eq!(list.cap(), initial_cap, "Capacity should not change after remove");
         assert_eq!(list.len, 1, "Length should be 1 after remove");
         assert_eq!(list.get(0), Some(&2), "Remaining element should be correct");
     }
