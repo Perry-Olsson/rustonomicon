@@ -659,4 +659,145 @@ mod tests {
         iter.next_back();
         assert_eq!(iter.size_hint(), (0, Some(0)), "Size hint should remain (0, Some(0)) after exhaustion");
     }
+
+    #[test]
+    fn test_drain_empty_list() {
+        let mut list: List<i32> = nl();
+        {
+            let mut iter = list.drain();
+            assert_eq!(iter.next(), None, "Empty iterator should yield None");
+            assert_eq!(iter.next_back(), None, "Empty iterator should yield None for next_back");
+            assert_eq!(iter.size_hint(), (0, Some(0)), "Size hint should be (0, Some(0)) for empty iterator");
+        }
+        list.push(3);
+        assert_eq!(list.len, 1);
+    }
+
+    #[test]
+    fn test_drain_single_element() {
+        let mut list = nl();
+        {
+            list.push(42);
+            let mut iter = list.drain();
+            assert_eq!(iter.size_hint(), (1, Some(1)), "Size hint should be (1, Some(1))");
+            assert_eq!(iter.next(), Some(42), "Iterator should yield single element");
+            assert_eq!(iter.next(), None, "Iterator should be exhausted after one element");
+            assert_eq!(iter.next_back(), None, "Exhausted iterator should yield None for next_back");
+            assert_eq!(iter.size_hint(), (0, Some(0)), "Size hint should be (0, Some(0)) after exhaustion");
+        }
+        list.push(3);
+        assert_eq!(list.len, 1);
+    }
+
+    #[test]
+    fn test_drain_multiple_elements_forward() {
+        let mut list = nl();
+        list.push(1);
+        list.push(2);
+        list.push(3);
+        {
+            let mut iter = list.drain();
+            assert_eq!(iter.size_hint(), (3, Some(3)), "Size hint should be (3, Some(3))");
+            assert_eq!(iter.next(), Some(1), "First element should be 1");
+            assert_eq!(iter.size_hint(), (2, Some(2)), "Size hint should update after next");
+            assert_eq!(iter.next(), Some(2), "Second element should be 2");
+            assert_eq!(iter.next(), Some(3), "Third element should be 3");
+            assert_eq!(iter.next(), None, "Iterator should be exhausted");
+            assert_eq!(iter.size_hint(), (0, Some(0)), "Size hint should be (0, Some(0)) after exhaustion");
+        }
+        list.push(3);
+        assert_eq!(list.len, 1);
+    }
+
+    #[test]
+    fn test_drain_multiple_elements_backward() {
+        let mut list = nl();
+        list.push(1);
+        list.push(2);
+        list.push(3);
+        {
+            let mut iter = list.drain();
+            assert_eq!(iter.next_back(), Some(3), "Last element should be 3");
+            assert_eq!(iter.size_hint(), (2, Some(2)), "Size hint should update after next_back");
+            assert_eq!(iter.next_back(), Some(2), "Second-to-last element should be 2");
+            assert_eq!(iter.next_back(), Some(1), "First element should be 1");
+            assert_eq!(iter.next_back(), None, "Iterator should be exhausted");
+            assert_eq!(iter.next(), None, "Exhausted iterator should yield None for next");
+        }
+        list.push(3);
+        assert_eq!(list.len, 1);
+    }
+
+    #[test]
+    fn test_drain_mixed_forward_backward() {
+        let mut list = nl();
+        list.push(1);
+        list.push(2);
+        list.push(3);
+        {
+            let mut iter = list.drain();
+            assert_eq!(iter.next(), Some(1), "First element should be 1");
+            assert_eq!(iter.next_back(), Some(3), "Last element should be 3");
+            assert_eq!(iter.size_hint(), (1, Some(1)), "Size hint should be (1, Some(1))");
+            assert_eq!(iter.next(), Some(2), "Middle element should be 2");
+            assert_eq!(iter.next(), None, "Iterator should be exhausted");
+            assert_eq!(iter.next_back(), None, "Exhausted iterator should yield None");
+        }
+        list.push(3);
+        assert_eq!(list.len, 1);
+    }
+
+    #[test]
+    fn test_drain_with_strings() {
+        let mut list: List<String> = nl();
+        list.push(String::from("a"));
+        list.push(String::from("b"));
+        {
+            let mut iter = list.drain();
+            assert_eq!(iter.size_hint(), (2, Some(2)), "Size hint should be (2, Some(2))");
+            assert_eq!(iter.next(), Some(String::from("a")), "First element should be 'a'");
+            assert_eq!(iter.next_back(), Some(String::from("b")), "Last element should be 'b'");
+            assert_eq!(iter.next(), None, "Iterator should be exhausted");
+        }
+
+        list.push(String::from("c"));
+        assert_eq!(list.len, 1);
+    }
+
+    #[test]
+    fn test_drain_collect() {
+        let mut list = nl();
+        list.push(1);
+        list.push(2);
+        list.push(3);
+        let result: Vec<i32> = list.drain().collect();
+        assert_eq!(result, vec![1, 2, 3], "Collect should yield elements in order");
+        list.push(1);
+        assert_eq!(list.len, 1);
+    }
+
+    #[test]
+    fn test_drain_drop_early() {
+        let mut list = nl();
+        list.push(1);
+        list.push(2);
+        {
+            let mut iter = list.drain();
+            assert_eq!(iter.next(), Some(1), "First element should be 1");
+            // Drop iterator early (before consuming all elements)
+        }
+        // No assertion needed; test passes if no memory leaks or panics occur
+    }
+
+    #[test]
+    fn test_drain_size_hint_edge_cases() {
+        let mut list = nl();
+        list.push(1);
+        let mut iter = list.drain();
+        assert_eq!(iter.size_hint(), (1, Some(1)), "Initial size hint should be (1, Some(1))");
+        iter.next();
+        assert_eq!(iter.size_hint(), (0, Some(0)), "Size hint should be (0, Some(0)) after consuming");
+        iter.next_back();
+        assert_eq!(iter.size_hint(), (0, Some(0)), "Size hint should remain (0, Some(0)) after exhaustion");
+    }
 }
