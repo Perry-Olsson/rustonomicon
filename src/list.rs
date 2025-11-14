@@ -1,8 +1,10 @@
 mod raw_list;
 mod iter;
+mod drain;
 
-use raw_list::{RawList};
-use iter::{IntoIter};
+use drain::{ Drain };
+use raw_list::{ RawList };
+use iter::{ IntoIter };
 use std::{
     marker::PhantomData, mem::{self}, ops::{Deref, DerefMut}
 };
@@ -103,7 +105,7 @@ impl <T> List<T> {
         }
     }
 
-    pub fn drain(&mut self) -> Drain<T> {
+    pub fn drain<'a>(&mut self) -> Drain<'a, T> {
         let iter = unsafe { RawValIter::new(&self) };
 
         self.len = 0;
@@ -156,35 +158,6 @@ impl <T> IntoIterator for List<T> {
                 _buf: buf
             }
         }
-    }
-}
-
-pub struct Drain<'a, T: 'a> {
-    list: PhantomData<&'a mut List<T>>,
-    iter: RawValIter<T>
-}
-
-impl <'a, T> Drop for Drain<'a, T> {
-    fn drop(&mut self) {
-        for _ in &mut *self {}
-    }
-}
-
-impl <'a, T> Iterator for Drain<'a, T> {
-    type Item = T;
-
-    fn next(&mut self) -> Option<T> {
-        self.iter.next()
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.iter.size_hint()
-    }
-}
-
-impl <'a, T> DoubleEndedIterator for Drain<'a, T> {
-    fn next_back(&mut self) -> Option<Self::Item> {
-        self.iter.next_back()
     }
 }
 
