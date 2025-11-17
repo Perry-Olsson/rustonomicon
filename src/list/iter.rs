@@ -1,3 +1,5 @@
+use std::ptr::NonNull;
+
 use crate::list::RawList;
 
 pub(super) struct RawValIter<T> {
@@ -9,7 +11,9 @@ impl <T> RawValIter<T> {
     pub(super) unsafe fn new(slice: &[T]) -> Self {
         RawValIter { 
             front: slice.as_ptr(),
-            back: if slice.len() == 0 {
+            back: if std::mem::size_of::<T>() == 0 {
+                ((slice.as_ptr() as usize) + slice.len()) as *const _
+            } else if slice.len() == 0 {
                 slice.as_ptr()
             } else {
                 unsafe {
@@ -24,16 +28,22 @@ impl <T> RawValIter<T> {
             None
         } else {
             unsafe {
-                let val = std::ptr::read(self.front);
-                self.front = self.front.offset(1);
-                return Some(val);
+                if std::mem::size_of::<T>() == 0 {
+                    self.front = (self.front as usize + 1) as *const _;
+                    Some(std::ptr::read(NonNull::dangling().as_ptr()))
+                } else {
+                    let val = std::ptr::read(self.front);
+                    self.front = self.front.offset(1);
+                    Some(val)
+                }
             }
         }
     }
 
     pub(super) fn size_hint(&self) -> (usize, Option<usize>) {
+        let elem_size = std::mem::size_of::<T>();
         let len = (self.back as usize - self.front as usize)
-                  / std::mem::size_of::<T>();
+                  / if elem_size == 0 { 1 } else { elem_size };
         (len, Some(len))
     }
 
@@ -42,8 +52,13 @@ impl <T> RawValIter<T> {
             None
         } else {
             unsafe {
-                self.back = self.back.offset(-1);
-                Some(std::ptr::read(self.back))
+                if std::mem::size_of::<T>() == 0 {
+                    self.back = (self.back as usize - 1) as *const _;
+                    Some(std::ptr::read(NonNull::dangling().as_ptr()))
+                } else {
+                    self.back = self.back.offset(-1);
+                    Some(std::ptr::read(self.back))
+                }
             }
         }
     }

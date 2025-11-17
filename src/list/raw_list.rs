@@ -10,14 +10,16 @@ unsafe impl<T: Sync> Sync for RawList<T> {}
 
 impl <T> RawList<T> {
     pub fn new() -> RawList<T> {
-        assert!(std::mem::size_of::<T>() != 0, "ZSTs can't be handled yet");
+        let cap = if std::mem::size_of::<T>() == 0 { usize::MAX } else { 0 };
         RawList { 
             ptr: NonNull::dangling(),
-            cap: 0,
+            cap,
         }
     }
 
     pub(super) fn grow(&mut self) {
+        assert!(std::mem::size_of::<T>() != 0, "capacity overflow");
+
         let (new_cap, new_layout) = if self.cap == 0 {
             (1, Layout::array::<T>(1).unwrap())
         } else {
@@ -36,6 +38,8 @@ impl <T> RawList<T> {
             let old_ptr = self.ptr.as_ptr() as *mut u8;
             unsafe { alloc::realloc(old_ptr, old_layout, new_layout.size()) }
         };
+
+        // if allocation fails, `new_ptr` will be null, in which case we abort
         self.ptr = match NonNull::new(new_ptr as *mut T) {
             Some(p) => p,
             None => alloc::handle_alloc_error(new_layout),
@@ -46,7 +50,9 @@ impl <T> RawList<T> {
 
 impl <T> Drop for RawList<T> {
     fn drop(&mut self) {
-        if self.cap != 0 {
+        let elem_size = std::mem::size_of::<T>();
+
+        if self.cap != 0 && elem_size != 0 {
             let layout = Layout::array::<T>(self.cap).unwrap();
             unsafe {
                 alloc::dealloc(self.ptr.as_ptr() as *mut u8, layout);
