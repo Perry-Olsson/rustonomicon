@@ -1,6 +1,7 @@
 mod raw_list;
 mod iter;
 mod drain;
+pub mod queue;
 
 use drain::{ Drain };
 use raw_list::{ RawList };
