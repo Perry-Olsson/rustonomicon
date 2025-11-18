@@ -134,9 +134,7 @@ mod tests {
     use super::*;
 
     // Helper function to create a new queue
-    fn nq<T>() -> Queue<T>
-    where T: Display, T: Debug
-    {
+    fn nq<T>() -> Queue<T> {
         Queue::new()
     }
 
@@ -153,13 +151,13 @@ mod tests {
         assert_eq!(q.peek(), Some(&42), "Peek should return the enqueued element");
     }
 
-    /* #[test]
+    #[test]
     fn test_enqueue_dequeue_single_element() {
         let mut q = nq();
         q.enqueue(42);
         assert_eq!(q.dequeue(), Some(42), "Dequeue should return the enqueued element");
         assert!(q.peek().is_none(), "Queue should be empty after dequeue");
-    } */
+    }
 
     #[test]
     fn test_enqueue_multiple_elements() {
@@ -170,7 +168,7 @@ mod tests {
         assert_eq!(q.peek(), Some(&1), "Peek should return first element");
     }
 
-    /* #[test]
+    #[test]
     fn test_dequeue_multiple_elements() {
         let mut q = nq();
         q.enqueue(1);
@@ -201,7 +199,7 @@ mod tests {
         assert_eq!(q.peek(), Some(&0), "Requeue should place element at front");
         assert_eq!(q.dequeue(), Some(0), "First dequeue should return requeued element");
         assert_eq!(q.dequeue(), Some(1), "Second dequeue should return original first element");
-    } */
+    }
 
     #[test]
     fn test_peek_empty_queue() {
@@ -209,7 +207,7 @@ mod tests {
         assert_eq!(q.peek(), None, "Peek on empty queue should return None");
     }
 
-    /* #[test]
+    #[test]
     fn test_dequeue_empty_queue() {
         let mut q: Queue<i32> = nq();
         assert_eq!(q.dequeue(), None, "Dequeue on empty queue should return None");
@@ -247,5 +245,5 @@ mod tests {
         assert_eq!(q.peek(), Some(&42), "Requeue on empty queue should work");
         assert_eq!(q.dequeue(), Some(42), "Dequeue should return requeued element");
         assert_eq!(q.dequeue(), None, "Queue should be empty after dequeue");
-    } */
+    }
 }
