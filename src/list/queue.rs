@@ -43,7 +43,10 @@ impl <T> Queue<T> {
     }
 
     pub fn requeue(&mut self, val: T) {
-        self.front -= 1;
+        if self.is_full() {
+            self.grow()
+        }
+        self.front = self.wrap_sub(self.front);
         unsafe {
             std::ptr::write(self.ptr().add(self.front), val);
         }
@@ -108,6 +111,13 @@ impl <T> Queue<T> {
 
     fn wrap(&self, idx: usize) -> usize {
         (idx + 1) % self.len
+    }
+
+    fn wrap_sub(&self, idx: usize) -> usize {
+        if idx == 0 {
+            return self.cap() - 1;
+        }
+        idx - 1
     }
 
     fn ptr(&self) -> *mut T {
