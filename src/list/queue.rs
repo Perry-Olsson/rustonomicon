@@ -37,7 +37,7 @@ impl <T> Queue<T> {
         let val = unsafe {
             std::ptr::read(self.ptr().add(self.front))
         };
-        self.front += 1;
+        self.front = self.wrap(self.front);
         self.len -= 1;
         Some(val)
     }
@@ -110,7 +110,7 @@ impl <T> Queue<T> {
     }
 
     fn wrap(&self, idx: usize) -> usize {
-        (idx + 1) % self.len
+        (idx + 1) % self.cap()
     }
 
     fn wrap_sub(&self, idx: usize) -> usize {
