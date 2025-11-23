@@ -137,6 +137,12 @@ impl <T> Queue<T> {
     }
 }
 
+impl <T> Drop for Queue<T> {
+    fn drop(&mut self) {
+        while let Some(_) = self.dequeue() { }
+    }
+}
+
 impl <T: Display> Display for Queue<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_char('[')?;
@@ -156,6 +162,13 @@ impl <T: Display> Display for Queue<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    extern crate stats_alloc;
+
+    use stats_alloc::{Region, StatsAlloc, INSTRUMENTED_SYSTEM};
+    use std::alloc::System;
+
+    #[global_allocator]
+    static GLOBAL: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
 
     // Helper function to create a new queue
     fn nq<T>() -> Queue<T> {
@@ -245,6 +258,19 @@ mod tests {
         assert_eq!(q.peek(), Some(&String::from("hello")), "Peek should return first string");
         assert_eq!(q.dequeue(), Some(String::from("hello")), "Dequeue should return first string");
         assert_eq!(q.peek(), Some(&String::from("world")), "Peek should return second string");
+    }
+
+    #[test]
+    fn ensure_heap_allocated_queue_items_are_dropped_if_left_in_queue() {
+        let reg = Region::new(&GLOBAL);
+        {
+            let mut q: Queue<String> = nq();
+            q.enqueue(String::from("hello"));
+            q.enqueue(String::from("world"));
+            q.dequeue();
+        }
+        let change = reg.change();
+        assert_eq!(change.allocations, change.deallocations);
     }
 
     #[test]
