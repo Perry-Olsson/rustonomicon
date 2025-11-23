@@ -30,6 +30,37 @@ impl <T> Queue<T> {
         self.len += 1;
     }
 
+    pub fn dequeue(&mut self) -> Option<T> {
+        if self.len == 0 {
+            return None;
+        }
+        let val = unsafe {
+            std::ptr::read(self.ptr().add(self.front))
+        };
+        self.front += 1;
+        self.len -= 1;
+        Some(val)
+    }
+
+    pub fn requeue(&mut self, val: T) {
+        self.front -= 1;
+        unsafe {
+            std::ptr::write(self.ptr().add(self.front), val);
+        }
+        self.len += 1;
+    }
+
+    pub fn peek(&self) -> Option<&T> {
+        if self.len == 0 {
+            None
+        } else {
+            unsafe {
+                let val = self.ptr().add(self.front);
+                Some(&*val)
+            }
+        }
+    }
+
     fn grow(&mut self) {
         assert!(std::mem::size_of::<T>() != 0, "capacity overflow");
 
@@ -77,23 +108,6 @@ impl <T> Queue<T> {
 
     fn wrap(&self, idx: usize) -> usize {
         (idx + 1) % self.len
-    }
-
-    /* pub fn dequeue(&mut self) -> Option<T> {
-    }
-
-    pub fn requeue(&mut self, val: T) {
-    } */
-
-    pub fn peek(&self) -> Option<&T> {
-        if self.len == 0 {
-            None
-        } else {
-            unsafe {
-                let val = self.ptr().add(self.front);
-                Some(&*val)
-            }
-        }
     }
 
     fn ptr(&self) -> *mut T {
