@@ -23,7 +23,7 @@ impl <T> Queue<T> {
         }
 
         unsafe {
-            let idx = if self.len == 0 { 0 } else { self.len };
+            let idx = (self.front + self.len) % self.cap();
             std::ptr::write(self.ptr().add(idx), val)
         }
 
@@ -64,6 +64,10 @@ impl <T> Queue<T> {
         }
     }
 
+    pub fn size(&self) -> usize {
+        self.len
+    }
+
     fn grow(&mut self) {
         assert!(std::mem::size_of::<T>() != 0, "capacity overflow");
 
@@ -96,7 +100,7 @@ impl <T> Queue<T> {
                     self.buf.ptr.as_ptr().add(i),
                     std::ptr::read(old_ptr.add(self.front))
                 );
-                self.front = self.wrap(self.front);
+                self.front = (self.front + 1) % old_cap
             }
         }
 
@@ -130,10 +134,6 @@ impl <T> Queue<T> {
 
     fn is_full(&self) -> bool {
         self.len == self.cap()
-    }
-
-    fn wrap_idx(&self, idx: usize) -> usize {
-        (idx + 1) % self.cap()
     }
 }
 
@@ -295,5 +295,105 @@ mod tests {
         assert_eq!(q.peek(), Some(&42), "Requeue on empty queue should work");
         assert_eq!(q.dequeue(), Some(42), "Dequeue should return requeued element");
         assert_eq!(q.dequeue(), None, "Queue should be empty after dequeue");
+    }
+
+    #[test]
+    fn test_enqueue_with_wrap_around() {
+        let mut q = nq();
+        q.enqueue(1);
+        q.enqueue(2);
+        q.enqueue(3);
+        q.enqueue(4); // [f:1, 2, 3, b:4]
+        assert_eq!(q.peek(), Some(&1), "Peek should return front element");
+        q.dequeue();
+        q.dequeue(); // [junk, junk, f:3, b:4]
+        assert_eq!(q.size(), 2, "Queue should have 2 elements");
+        assert_eq!(q.peek(), Some(&3), "Peek should return front element");
+        q.enqueue(5); // [b:5, junk, f:3, 4]
+        assert_eq!(q.cap(), 4, "Capacity should be 4");
+        assert_eq!(q.size(), 3, "Queue should have 2 elements");
+        assert_eq!(q.peek(), Some(&3), "Peek should return front element");
+        q.enqueue(6); // [5, b:6, f:3, 4]
+        assert_eq!(q.peek(), Some(&3), "Peek should return front element");
+        q.enqueue(7); // [f:3, 4, 5, 6, b:7, junk, junk, junk]
+        assert_eq!(q.cap(), 8, "Capacity should be 8");
+        assert_eq!(q.size(), 5, "Queue should have 5 elements");
+        assert_eq!(q.peek(), Some(&3), "Peek should return front element");
+        assert_eq!(q.front, 0, "With current implementation front of queue should be 0 after resize");
+    }
+
+    #[test]
+    fn dequeue_wraps_around() {
+        let mut q = nq();
+        q.enqueue(1);
+        q.enqueue(2);
+        q.enqueue(3);
+        q.enqueue(4); // [f:1, 2, 3, b:4]
+        q.dequeue();
+        q.dequeue(); // [junk, junk, f:3, b:4]
+        q.enqueue(5); // [b:5, junk, f:3, 4]
+        q.enqueue(6); // [5, b:6, f:3, 4]
+                      
+        assert_eq!(q.dequeue(), Some(3));
+        assert_eq!(q.size(), 3);
+        assert_eq!(q.cap(), 4);
+
+        assert_eq!(q.dequeue(), Some(4));
+        assert_eq!(q.size(), 2, "Queue size should be 2");
+        assert_eq!(q.cap(), 4, "Queue capacity mismatch");
+        assert_eq!(q.front, 0, "Front of queue should be at index 0");
+
+        assert_eq!(q.dequeue(), Some(5));
+        assert_eq!(q.size(), 1, "Queue size mismatch");
+        assert_eq!(q.cap(), 4, "Queue capacity should be 4");
+        assert_eq!(q.front, 1, "Queue front mismatch. Expected: {}, Actual: {}", 0, q.front);
+    }
+
+    #[test]
+    fn dequeue_to_empty_and_enqueue() {
+        let mut q = nq();
+        q.enqueue(1);
+        q.enqueue(2);
+        q.enqueue(3);
+        q.enqueue(4); // [f:1, 2, 3, b:4]
+        q.dequeue();
+        q.dequeue(); // [junk, junk, f:3, b:4]
+        q.enqueue(5); // [b:5, junk, f:3, 4]
+        q.enqueue(6); // [5, b:6, f:3, 4]
+        q.dequeue();
+        q.dequeue();
+        q.dequeue();
+        q.dequeue();
+        assert_eq!(None, q.dequeue());
+        assert_eq!(0, q.size());
+        assert_eq!(4, q.cap());
+        assert_eq!(2, q.front);
+        q.enqueue(7);
+        assert_eq!(1, q.size());
+        assert_eq!(4, q.cap());
+        assert_eq!(2, q.front);
+        assert_eq!(Some(&7), q.peek());
+    }
+
+    #[test]
+    fn requeue_wraps_around_and_then_grows() {
+        let mut q = nq();
+        q.enqueue(1);
+        q.enqueue(2); // [f:1, b:2, junk, junk]
+        q.requeue(3);
+        q.requeue(4); // [1, b:2, f:4, 3]
+        assert_eq!(4, q.size());
+        assert_eq!(4, q.cap());
+        assert_eq!(2, q.front);
+        assert_eq!(Some(&4), q.peek());
+        q.requeue(5); // [4, 3, 1, B:2, junk, junk, junk, f:5]
+        assert_eq!(5, q.size());
+        assert_eq!(8, q.cap());
+        assert_eq!(7, q.front);
+        assert_eq!(Some(5), q.dequeue());
+        assert_eq!(Some(4), q.dequeue());
+        assert_eq!(Some(3), q.dequeue());
+        assert_eq!(Some(1), q.dequeue());
+        assert_eq!(Some(2), q.dequeue());
     }
 }
