@@ -41,7 +41,7 @@ impl <T> Queue<T> {
         let val = unsafe {
             ptr::read(self.ptr().add(self.front))
         };
-        self.front = self.wrap(self.front);
+        self.incr_front();
         self.len -= 1;
         Some(val)
     }
@@ -50,7 +50,7 @@ impl <T> Queue<T> {
         if self.is_full() {
             self.grow()
         }
-        self.front = self.wrap_sub(self.front);
+        self.decr_front();
         unsafe {
             ptr::write(self.ptr().add(self.front), val);
         }
@@ -117,15 +117,19 @@ impl <T> Queue<T> {
         self.front = 0;
     }
 
-    fn wrap(&self, idx: usize) -> usize {
-        (idx + 1) % self.cap()
+    fn incr_front(&mut self) {
+        self.front += 1;
+        if self.front == self.cap() {
+            self.front = 0;
+        }
     }
 
-    fn wrap_sub(&self, idx: usize) -> usize {
-        if idx == 0 {
-            return self.cap() - 1;
+    fn decr_front(&mut self) {
+        if self.front == 0 {
+            self.front = self.cap() - 1;
+        } else {
+            self.front -= 1;
         }
-        idx - 1
     }
 
     fn ptr(&self) -> *mut T {
