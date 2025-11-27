@@ -1,4 +1,8 @@
-use std::{alloc::Layout, fmt::{Display, Write}, ptr::NonNull};
+use std::{
+    alloc::{self, Layout},
+    fmt::{self, Display, Write},
+    ptr::{self, NonNull}
+};
 
 use crate::list::RawList;
 
@@ -23,7 +27,7 @@ impl <T> Queue<T> {
         }
 
         unsafe {
-            std::ptr::write(self.ptr().add(self.back()), val)
+            ptr::write(self.ptr().add(self.back()), val)
         }
 
         self.len += 1;
@@ -34,7 +38,7 @@ impl <T> Queue<T> {
             return None;
         }
         let val = unsafe {
-            std::ptr::read(self.ptr().add(self.front))
+            ptr::read(self.ptr().add(self.front))
         };
         self.front = self.wrap(self.front);
         self.len -= 1;
@@ -47,7 +51,7 @@ impl <T> Queue<T> {
         }
         self.front = self.wrap_sub(self.front);
         unsafe {
-            std::ptr::write(self.ptr().add(self.front), val);
+            ptr::write(self.ptr().add(self.front), val);
         }
         self.len += 1;
     }
@@ -68,7 +72,7 @@ impl <T> Queue<T> {
     }
 
     fn grow(&mut self) {
-        assert!(std::mem::size_of::<T>() != 0, "capacity overflow");
+        assert!(mem::size_of::<T>() != 0, "capacity overflow");
 
         let (new_cap, new_layout) = if self.cap() == 0 {
             (1, Layout::array::<T>(1).unwrap())
@@ -82,22 +86,22 @@ impl <T> Queue<T> {
         assert!(new_layout.size() <= isize::MAX as usize, "Allocation too large");
 
         let new_ptr = unsafe {
-            std::alloc::alloc(new_layout)
+            alloc::alloc(new_layout)
         };
         let old_cap = self.cap();
         let old_ptr = self.ptr();
         self.buf.ptr = match NonNull::new(new_ptr as *mut T) {
             Some(p) => p,
-            None => std::alloc::handle_alloc_error(new_layout),
+            None => alloc::handle_alloc_error(new_layout),
         };
         self.buf.cap = new_cap;
 
         // TODO copy all values from previous buffer from front -> back with wrap
         for i in 0..self.len {
             unsafe {
-                std::ptr::write(
+                ptr::write(
                     self.buf.ptr.as_ptr().add(i),
-                    std::ptr::read(old_ptr.add(self.front))
+                    ptr::read(old_ptr.add(self.front))
                 );
                 self.front = (self.front + 1) % old_cap
             }
@@ -106,7 +110,7 @@ impl <T> Queue<T> {
         let old_layout = Layout::array::<T>(old_cap).unwrap();
         if old_cap != 0 {
             unsafe {
-                std::alloc::dealloc(old_ptr as *mut u8, old_layout);
+                alloc::dealloc(old_ptr as *mut u8, old_layout);
             }
         }
         self.front = 0;
@@ -147,11 +151,11 @@ impl <T> Drop for Queue<T> {
 }
 
 impl <T: Display> Display for Queue<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_char('[')?;
         for i in self.front..self.len {
             let val = unsafe {
-                std::ptr::read(self.buf.ptr.as_ptr().add(i))
+                ptr::read(self.buf.ptr.as_ptr().add(i))
             };
             f.write_str(&val.to_string()[..])?;
             if i != self.len - 1 {
@@ -168,7 +172,7 @@ mod tests {
     extern crate stats_alloc;
 
     use stats_alloc::{Region, StatsAlloc, INSTRUMENTED_SYSTEM};
-    use std::alloc::System;
+    use alloc::System;
 
     #[global_allocator]
     static GLOBAL: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
