@@ -23,8 +23,7 @@ impl <T> Queue<T> {
         }
 
         unsafe {
-            let idx = (self.front + self.len) % self.cap();
-            std::ptr::write(self.ptr().add(idx), val)
+            std::ptr::write(self.ptr().add(self.back()), val)
         }
 
         self.len += 1;
@@ -134,6 +133,10 @@ impl <T> Queue<T> {
 
     fn is_full(&self) -> bool {
         self.len == self.cap()
+    }
+
+    fn back(&self) -> usize {
+        (self.front + self.len) % self.cap()
     }
 }
 
