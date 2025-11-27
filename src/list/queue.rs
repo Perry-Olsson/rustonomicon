@@ -1,8 +1,6 @@
 use std::{
-    alloc::{self, Layout},
     fmt::{self, Display, Write},
-    ptr::{self, NonNull},
-    mem
+    ptr::{self}
 };
 
 use crate::list::RawList;
@@ -73,48 +71,39 @@ impl <T> Queue<T> {
     }
 
     fn grow(&mut self) {
-        assert!(mem::size_of::<T>() != 0, "capacity overflow");
-
-        let (new_cap, new_layout) = if self.cap() == 0 {
-            (1, Layout::array::<T>(1).unwrap())
+        // [5, b:6, f:3, 4, junk, junk, junk, junk]
+        // Need to shuffle shorter of two splits
+        // Either front is shuffled to end of array or back is shuffled to after front
+        // Length of front = old_cap - front
+        // Length of back = len - front_len
+        let front_len = self.cap() - self.front;
+        let back_len = self.cap() - front_len;
+        self.buf.grow();
+        if self.front == 0 {
+            return;
+        }
+        if front_len < back_len {
+            // shuffle front chunk to back of new array
+            let new_front = self.cap() - front_len;
+            unsafe {
+                std::ptr::copy::<T>(
+                    self.ptr().add(self.front),
+                    self.ptr().add(new_front),
+                    front_len
+                    );
+            }
+            self.front = new_front
         } else {
-            let new_cap = 2 * self.cap();
-            let new_layout = Layout::array::<T>(new_cap).unwrap();
-            (new_cap, new_layout)
-        };
-
-        // Ensure that the new allocation doesn't exceed `isize::MAX` bytes.
-        assert!(new_layout.size() <= isize::MAX as usize, "Allocation too large");
-
-        let new_ptr = unsafe {
-            alloc::alloc(new_layout)
-        };
-        let old_cap = self.cap();
-        let old_ptr = self.ptr();
-        self.buf.ptr = match NonNull::new(new_ptr as *mut T) {
-            Some(p) => p,
-            None => alloc::handle_alloc_error(new_layout),
-        };
-        self.buf.cap = new_cap;
-
-        // TODO copy all values from previous buffer from front -> back with wrap
-        for i in 0..self.len {
+            // shuffle back to right after front
+            let shuffle_index = self.front + front_len;
             unsafe {
-                ptr::write(
-                    self.buf.ptr.as_ptr().add(i),
-                    ptr::read(old_ptr.add(self.front))
-                );
-                self.front = (self.front + 1) % old_cap
+                ptr::copy(
+                    self.ptr(),
+                    self.ptr().add(shuffle_index),
+                    back_len
+                )
             }
         }
-
-        let old_layout = Layout::array::<T>(old_cap).unwrap();
-        if old_cap != 0 {
-            unsafe {
-                alloc::dealloc(old_ptr as *mut u8, old_layout);
-            }
-        }
-        self.front = 0;
     }
 
     fn incr_front(&mut self) {
@@ -132,7 +121,7 @@ impl <T> Queue<T> {
         }
     }
 
-    fn ptr(&self) -> *mut T {
+    fn ptr(&self) -> *mut T { 
         self.buf.ptr.as_ptr()
     }
 
@@ -177,7 +166,7 @@ mod tests {
     extern crate stats_alloc;
 
     use stats_alloc::{Region, StatsAlloc, INSTRUMENTED_SYSTEM};
-    use alloc::System;
+    use std::alloc::System;
 
     #[global_allocator]
     static GLOBAL: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
@@ -327,11 +316,51 @@ mod tests {
         assert_eq!(q.peek(), Some(&3), "Peek should return front element");
         q.enqueue(6); // [5, b:6, f:3, 4]
         assert_eq!(q.peek(), Some(&3), "Peek should return front element");
-        q.enqueue(7); // [f:3, 4, 5, 6, b:7, junk, junk, junk]
+        q.enqueue(7); // [junk, junk, f:3, 4, 5, 6, b:7, junk]
         assert_eq!(q.cap(), 8, "Capacity should be 8");
         assert_eq!(q.size(), 5, "Queue should have 5 elements");
         assert_eq!(q.peek(), Some(&3), "Peek should return front element");
-        assert_eq!(q.front, 0, "With current implementation front of queue should be 0 after resize");
+        assert_eq!(q.front, 2, "With current implementation front of queue should be 0 after resize");
+
+        assert_eq!(q.dequeue(), Some(3));
+        assert_eq!(q.dequeue(), Some(4));
+        assert_eq!(q.dequeue(), Some(5));
+        assert_eq!(q.dequeue(), Some(6));
+        assert_eq!(q.dequeue(), Some(7));
+        assert_eq!(q.dequeue(), None);
+    }
+
+    #[test]
+    fn test_grow_with_front_shuffle() {
+        let mut q = nq();
+        q.enqueue(1);
+        q.enqueue(2);
+        q.enqueue(3);
+        q.enqueue(4); // [f:1, 2, 3, b:4]
+        assert_eq!(q.peek(), Some(&1), "Peek should return front element");
+        q.dequeue();
+        q.dequeue(); // [junk, junk, f:3, b:4]
+        assert_eq!(q.size(), 2, "Queue should have 2 elements");
+        assert_eq!(q.peek(), Some(&3), "Peek should return front element");
+        q.enqueue(5); // [b:5, junk, f:3, 4]
+        assert_eq!(q.cap(), 4, "Capacity should be 4");
+        assert_eq!(q.size(), 3, "Queue should have 2 elements");
+        assert_eq!(q.peek(), Some(&3), "Peek should return front element");
+        q.enqueue(6); // [5, b:6, f:3, 4]
+        q.dequeue(); // [5, b:6, junk, f:4]
+        q.enqueue(7); // [5, 6, b:7, f:4]
+        q.enqueue(8); // [5, 6, 7, b:8, junk, junk, junk, f:4]
+        assert_eq!(q.cap(), 8, "Capacity should be 8");
+        assert_eq!(q.size(), 5, "Queue should have 5 elements");
+        assert_eq!(q.peek(), Some(&4), "Peek should return front element");
+        assert_eq!(q.front, 7, "With current implementation front of queue should be 0 after resize");
+
+        assert_eq!(q.dequeue(), Some(4));
+        assert_eq!(q.dequeue(), Some(5));
+        assert_eq!(q.dequeue(), Some(6));
+        assert_eq!(q.dequeue(), Some(7));
+        assert_eq!(q.dequeue(), Some(8));
+        assert_eq!(q.dequeue(), None);
     }
 
     #[test]
@@ -398,10 +427,10 @@ mod tests {
         assert_eq!(4, q.cap());
         assert_eq!(2, q.front);
         assert_eq!(Some(&4), q.peek());
-        q.requeue(5); // [4, 3, 1, B:2, junk, junk, junk, f:5]
+        q.requeue(5); // [junk, f:5, 4, 3, 1, b:2, junk, junk]
         assert_eq!(5, q.size());
         assert_eq!(8, q.cap());
-        assert_eq!(7, q.front);
+        assert_eq!(1, q.front);
         assert_eq!(Some(5), q.dequeue());
         assert_eq!(Some(4), q.dequeue());
         assert_eq!(Some(3), q.dequeue());
