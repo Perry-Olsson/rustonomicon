@@ -71,19 +71,17 @@ impl <T> Queue<T> {
     }
 
     fn grow(&mut self) {
-        // [5, b:6, f:3, 4, junk, junk, junk, junk]
         // Need to shuffle shorter of two splits
-        // Either front is shuffled to end of array or back is shuffled to after front
-        // Length of front = old_cap - front
-        // Length of back = len - front_len
         let front_len = self.cap() - self.front;
         let back_len = self.cap() - front_len;
         self.buf.grow();
+        // [5, b:6, f:3, 4, junk, junk, junk, junk]
         if self.front == 0 {
             return;
         }
         if front_len < back_len {
             // shuffle front chunk to back of new array
+            // [5, b:6, junk, junk, junk, junk, f:3, 4]
             let new_front = self.cap() - front_len;
             unsafe {
                 std::ptr::copy::<T>(
@@ -95,6 +93,7 @@ impl <T> Queue<T> {
             self.front = new_front
         } else {
             // shuffle back to right after front
+            // [junk, junk, f:3, 4, 5, b:6, junk, junk]
             let shuffle_index = self.front + front_len;
             unsafe {
                 ptr::copy(
