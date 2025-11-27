@@ -1,7 +1,8 @@
 use std::{
     alloc::{self, Layout},
     fmt::{self, Display, Write},
-    ptr::{self, NonNull}
+    ptr::{self, NonNull},
+    mem
 };
 
 use crate::list::RawList;
